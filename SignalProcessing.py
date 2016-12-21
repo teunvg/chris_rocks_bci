@@ -17,7 +17,7 @@ while run:
         if e.value == "calibration":
             print("Calibration phase")
             data, events, stopevents = bufhelp.gatherdata(["stimulus.tgtFlash", "stimulus.tgtHide"], trlen_ms, ("stimulus.training", "end"), milliseconds=True)
-            with open("subject_data", "w") as file:
+            with open("subject_data.dat", "w") as file:
                 pickle.dump({"events":events, "data":data}, file)
             print("End calibration phase")
 

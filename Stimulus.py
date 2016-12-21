@@ -17,7 +17,7 @@ stim_radius = 1
 
 ftc, hdr = bufhelp.connect()
 
-screen = visual.Window([960,540], monitor="testMonitor", units="deg", fullscr=True)
+screen = visual.Window([960,540], monitor="testMonitor", units="deg", fullscr=False)
 
 # create the stimuli
 text = visual.TextStim(win=screen, text="Please wait...", color=(1,1,1))
@@ -53,13 +53,13 @@ def showElement(screen, el, time=1):
     showElements(screen, [el], time)
 
 # start calibration 
+bufhelp.sendEvent("startPhase.cmd", "calibration")
 text.setText("Prepare for training")
 showElement(screen, text)
 showElements(screen, circles + labels + [fixation], 2)
 
 stimuli = list(range(stimN)) * training_stims;
 
-bufhelp.sendEvent("startPhase.cmd", "calibration")
 bufhelp.sendEvent("stimulus.training", "start")
 for b in range(training_blocks):
     shuffle(stimuli)
