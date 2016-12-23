@@ -2,7 +2,7 @@ import scipy.signal
 import numpy
 from math import ceil
 
-def detrend(data, dim=1, type="linear"):
+def detrend(data, dim=0, type="linear"):
     '''Removes trends from the data.
     
     Applies the scipy.signal.detrend function to the data, this numpy function
@@ -133,7 +133,7 @@ def spatialfilter(data, type="car",whitencutoff=1e-15):
         
     if type=="car":
         
-        X = numpy.dot(numpy.eye(X.shape[0])-(1.0/X.shape[0]),X)
+        X = numpy.dot(X, numpy.eye(X.shape[1]) - 1.0/X.shape[1])
         
     elif type=="whiten":
         
@@ -520,7 +520,7 @@ def concatdata(data):
         
     return numpy.concatenate(data)
     
-def badchannelremoval(data, badchannels = None, threshold = (-numpy.inf,3.1)):
+def badchannelremoval(data, badchannels = None, threshold = (None, 3)):
     '''Removes bad channels from the data.
     
     Removes bad channels from the data. Basically applies outlier detection
@@ -583,7 +583,7 @@ def badchannelremoval(data, badchannels = None, threshold = (-numpy.inf,3.1)):
     else:
         raise Exception("data should be a numpy array or list of numpy arrays.")
 
-def badtrialremoval(data, events = None, threshold = (None,3.1)):
+def badtrialremoval(data, events = None, threshold = (None,3)):
     '''Removes bad trails from the data.
     
     Removes bad trails from the data. Applies outlier detection on the rows
@@ -687,20 +687,20 @@ def outlierdetection(X, dim=0, threshold=(None,3), maxIter=3, feat="var"):
 
         if threshold[0] is None:
             high = mufeat+threshold[1]*stdfeat
-            bad = (feat > high)
+            bad = (feat[inliers] > high)
         elif threshold[1] is None:
             low = mufeat+threshold[0]*stdfeat
-            bad = (feat < low)
+            bad = (feat[inliers] < low)
         else:
             high = mufeat+threshold[1]*stdfeat
             low = mufeat+threshold[0]*stdfeat
-            bad = (feat > high) * (feat < low)
+            bad = (feat[inliers] > high) * (feat[inliers] < low)
 
         if not any(bad):
             break
         else:
             outliers = outliers + list(inliers[bad])
-            inliers = inliers[[ not x for x in bad]]
+            inliers = inliers[numpy.logical_not(bad)]
     
     return (list(inliers), outliers)
     

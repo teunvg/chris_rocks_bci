@@ -24,6 +24,7 @@ text = visual.TextStim(win=screen, text="Please wait...", color=(1,1,1))
 fixation = visual.GratingStim(win=screen, size=0.5, pos=[0,0], sf=0)
 
 labelText = ['F', 'LH', 'RH']
+
 stimN = len(labelText)
 circles = [None] * stimN
 labels = [None] * stimN
