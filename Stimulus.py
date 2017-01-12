@@ -18,7 +18,7 @@ stim_radius = 1
 
 ftc, hdr = bufhelp.connect()
 
-screen = visual.Window([960,540], monitor="testMonitor", units="deg", fullscr=False)
+screen = visual.Window([960,540], monitor="testMonitor", units="deg", fullscr=True)
 
 # create the stimuli
 text = visual.TextStim(win=screen, text="Please wait...", color=(1,1,1))
