@@ -7,8 +7,9 @@ import numpy as np
 training_blocks = 3
 training_stims = 10
 
-stim_length = (1.5, 2.5)
-interstim_time = (1, 1.5)
+prep_length = (.6, 1.2)
+stim_length = (1., 2.)
+interstim_time = (.75, 1.5)
 break_time = 15
 
 # set up the environment
@@ -34,15 +35,9 @@ for i, label in enumerate(labelText):
     circles[i] = visual.Circle(win=screen, radius=stim_radius, pos=position, fillColor=(.5, .5, .5))
     labels[i] = visual.TextStim(win=screen, text=label, pos=position, color=(1,1,1))
 
-def selectCircle(circle, label):
-    #selected = randint(0, len(circles) - 1)
-    circle.setFillColor((0, .5, 0))
-    bufhelp.sendEvent("stimulus.tgtFlash", label)
-
-def deselectCircles(circles):
-    for circle in circles:
-        circle.setFillColor((.5, .5, .5))
-    bufhelp.sendEvent("stimulus.tgtHide", True)
+def setCircle(circle, color, type, label):
+    circle.setFillColor(color)
+    bufhelp.sendEvent("stimulus." + type, label)
 
 def showElements(screen, elts, time=1):
     for el in elts:
@@ -61,15 +56,18 @@ showElements(screen, circles + labels + [fixation], 2)
 
 stimuli = list(range(stimN)) * training_stims;
 
+colors = ((0, 0, .5), (0, .5, 0), (.5, .5, .5))
+states = ("prepare", "start", "stop")
+timings = (prep_length, stim_length, interstim_time)
+
 bufhelp.sendEvent("stimulus.training", "start")
 for b in range(training_blocks):
     shuffle(stimuli)
 
     for stim in stimuli:
-        selectCircle(circles[stim], labelText[stim])
-        showElements(screen, circles + labels + [fixation], uniform(*stim_length))
-        deselectCircles(circles)
-        showElements(screen, circles + labels + [fixation], uniform(*interstim_time))
+        for color, state, timing in zip(colors, states, timings):
+            setCircle(circles[stim], color, state, labelText[stim])
+            showElements(screen, circles + labels + [fixation], uniform(*timing))
 
     if b < training_blocks - 1:
         text.setText("You have a %ds break now" % break_time)

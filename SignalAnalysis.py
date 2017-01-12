@@ -3,6 +3,7 @@ from scipy import signal
 import seaborn as sns
 from buffer_bci import preproc
 import pickle
+import pywt as pywt
 
 def getspectralfilter(type, band, rate):
     b, a = signal.butter(5, [2 * x / float(rate) for x in band], type)
@@ -19,8 +20,10 @@ with open('channels.csv', 'r') as file:
         ch_num, ch_name, x, y = line.split(',')
         channels[int(ch_num) - 1] = ch_name
 
-bandpass = getspectralfilter('bandpass', [8, 38], 250)
-bandstop = getspectralfilter('bandstop', [45, 55], 250)
+freq = 250.
+
+bandpass = getspectralfilter('bandpass', [.4, 38], freq)
+bandstop = getspectralfilter('bandstop', [45, 55], freq)
 
 data = [datum[:,:32] for datum in data]
 data = preproc.detrend(data)
@@ -30,9 +33,8 @@ for ch in badch:
 data = preproc.spatialfilter(data, type="car")
 data = [signal.filtfilt(*(bandpass + (datum,)), axis=0) for datum in data]
 data = [signal.filtfilt(*(bandstop + (datum,)), axis=0) for datum in data]
-#data = preproc.spectralfilter(data, (0, .1, 30, 38), 250.)
+#data = preproc.spectralfilter(data, (0, .1, 30, 38), freq)
 #data, events, badtrials = preproc.badtrialremoval(data, events)
-
 
 types, startData, endData = [], [], []
 for event, datum in zip(events, data):
@@ -71,15 +73,17 @@ for typeMeans in timeMeans.values():
                 #sns.tsplot(data=eventMeans[:,:,i], ci=[68, 95], ax=ax, color=colors[eventType])
     sns.plt.legend()
 
-specData = treeLambda(timeData, lambda datum: signal.spectrogram(datum, 250., nperseg=96, noverlap=95, axis=1))
+specData = treeLambda(timeData, lambda datum: signal.spectrogram(datum, freq, nperseg=64, noverlap=63, axis=1))
+#waveData = treeLambda(timeData, lambda datum: pywt.wavedec(datum, 'db1', axis=1))
 specMeans = treeLambda(specData, lambda datum: (datum[0], datum[1], np.mean(datum[2], axis=0)))
-for typeMeans in specMeans.values():
-    for eventMeans in typeMeans.values():
+for eventType, typeMeans in specMeans.items():
+    for eventClass, eventMeans in typeMeans.items():
         fig, axs = sns.plt.subplots(4, 8, sharey='all', sharex='all')
+        print(eventType + ' for ' + eventClass)
         for i, ax in enumerate(axs.flatten()):
             if i < len(channels):
                 ax.set_title(channels[i])
                 x, y = np.meshgrid(*reversed(eventMeans[0:2]))
-                ax.contourf(x, y, eventMeans[2][:,i,:])
+                ax.contourf(x, y, np.multiply(eventMeans[2][:,i,:], np.matrix([[f ** 2 for f in eventMeans[0]]] * len(eventMeans[1])).T))
         ax.set_ylim([0, 45])
 sns.plt.show()
