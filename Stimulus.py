@@ -4,12 +4,15 @@ from random import randint, uniform, shuffle
 import numpy as np
 
 # experiment settings
+training_type = 'hmm'
 training_blocks = 3
 training_stims = 10
 
 prep_length = (.6, 1.2)
 stim_length = (1., 2.)
 interstim_time = (.75, 1.5)
+hmm_stim_length = (.5, .5)
+hmm_interstim_time = (2, 3)
 break_time = 15
 
 # set up the environment
@@ -56,9 +59,14 @@ showElements(screen, circles + labels + [fixation], 2)
 
 stimuli = list(range(stimN)) * training_stims;
 
-colors = ((0, 0, .5), (0, .5, 0), (.5, .5, .5))
-states = ("prepare", "start", "stop")
-timings = (prep_length, stim_length, interstim_time)
+if training_type == 'main':
+    colors = ((0, 0, .5), (0, .5, 0), (.5, .5, .5))
+    states = ("prepare", "start", "stop")
+    timings = (prep_length, stim_length, interstim_time)
+else:
+    colors = ((0, 0, .5), (.5, .5, .5))
+    states = ("start", "wait")
+    timings = (hmm_stim_length, hmm_interstim_time)
 
 bufhelp.sendEvent("stimulus.training", "start")
 for b in range(training_blocks):

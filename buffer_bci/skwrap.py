@@ -64,7 +64,7 @@ def fit(data, events, classifier, mapping=dict(), params = None, folds = 5, shuf
         numpy.random.shuffle(X)
 
     if events is not None:
-        if not isinstance(data,numpy.ndarray):
+        if not isinstance(events,numpy.ndarray):
             if reducer is not None:
                 Y = createclasses(events, 1, mapping)
             else:
