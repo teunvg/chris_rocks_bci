@@ -6,51 +6,40 @@ import pickle
 import pywt as pywt
 import sklearn as sk
 
-def getspectralfilter(type, band, rate):
-    b, a = signal.butter(6, [2 * x / float(rate) for x in band], type)
-    return (b, a)
-
+# Load recorded data
 events = data = []
-with open('teun_im' + '.dat', 'r') as file:
+with open('live_subject_data' + '.dat', 'r') as file:
     raw = pickle.load(file)
     hdr, data, events = raw['hdr'], raw['data'], raw['events']
 
 n_channels = 10
 freq = 250.
 
-channels = [''] * n_channels
-with open('channels10.csv', 'r') as file:
-    file.readline()
-    for line in file:
-        ch_num, ch_name, x, y = line.split(',')
-        channels[int(ch_num) - 1] = ch_name
+window_size = 256
+window_shift = 3
 
-allband = getspectralfilter('bandpass', [.4, 38], freq)
-LRPband = getspectralfilter('bandpass', [.4, 3.5], freq)
-ERDband = getspectralfilter('bandpass', [8, 38], freq)
-ERSband = getspectralfilter('bandpass', [14, 38], freq)
-power_50hz = getspectralfilter('bandstop', [45, 55], freq)
+ix = np.where([len(event) > 0 for event in events])[0]
+gap_ix = ix[np.diff(ix) > 30]
+deckCut = gap_ix[3] + 1
 
-applyfilter = lambda filter, data: [signal.filtfilt(*(filter + (datum,)), axis=0) for datum in data]
-
-data = [datum[:,:n_channels] for i, datum in enumerate(data) if np.floor(i / 90) not in [1]]
-events = [event for i, event in enumerate(events) if np.floor(i / 90) not in [1]]
+# Preprocessing hooray!
+data = [datum[-window_size:,:n_channels] for i, datum in enumerate(data)]
 data = preproc.detrend(data)
 #data, badch = preproc.badchannelremoval(data)
 #for ch in badch:
 #    del channels[ch]
 data = preproc.spatialfilter(data, type="car")
-data = applyfilter(power_50hz, data)
-#data = [signal.filtfilt(*(bandstop1 + (datum,)), axis=0) for datum in data]
-#data = [signal.filtfilt(*(bandstop2 + (datum,)), axis=0) for datum in data]
-#data = preproc.spectralfilter(data, (0, .1, 30, 38), freq)
 #data, events, badtrials = preproc.badtrialremoval(data, events)
-data = [signal.spectrogram(datum, freq, nperseg=64, noverlap=54, axis=0) for datum in data]
-bands = data[0][0]
-deltas = [np.logical_and(bands > i, bands < j) for i, j in zip([0], [4])]
-mus = [np.logical_and(bands > i, bands < j) for i, j in zip([7], [14])]
-betas = [np.logical_and(bands > i, bands < j) for i, j in zip([14], [30])]
-data = [np.array([datum[2][band,:,0:31].mean(axis=0).tolist() for band in deltas + mus + betas]) for datum in data]
+
+# Take fft
+expfun = (1-(1/np.exp(np.linspace(0, 4.2, window_size)))).reshape((window_size,1))
+data = [np.abs(np.fft.rfft(1 * datum, axis=0)) for datum in data]
+freqs = np.array([float(i)/window_size*freq for i in range(window_size/2+1)])
+deltas = [np.logical_and(freqs > i, freqs < j) for i, j in zip([0.4, 2], [2, 4])]
+mus = [np.logical_and(freqs > i, freqs < j) for i, j in zip([7, 11], [11, 14])]
+betas = [np.logical_and(freqs > i, freqs < j) for i, j in zip([14, 18, 22, 26], [18, 22, 26, 30])]
+bands = deltas + mus + betas
+data = [np.array([datum[band, :].mean(axis=0).tolist() for band in bands]) for datum in data]
 
 # Normalise
 flat_data = np.array([datum.flatten().tolist() for datum in data])
@@ -58,85 +47,60 @@ feature_means = flat_data.mean(axis=0)
 demeaned_data = flat_data - feature_means
 feature_stds = demeaned_data.std(axis=0)
 norm_data = demeaned_data / feature_stds
-data = [np.array(datum).reshape(3, -1, 31) for datum in norm_data.tolist()]
+data = [np.array(datum).reshape(len(bands), -1) for datum in norm_data.tolist()]
 
-#order = np.argsort([event.sample for event in events])
-#events, data = zip(*[(events[i], data[i]) for i in order])
-types, prepData, startData, stopData = [], [], [], []
-for event, datum in zip(events, data):
-    if event.type == 'stimulus.prepare':
-        prepData.append(datum)
-        types.append(event.value)
-    elif event.type == 'stimulus.start':
-        startData.append(datum)
-    elif event.type == 'stimulus.stop':
-        stopData.append(datum)
+# Turn events into indices
+classes = ["RH", "LH", "F"]
+types = ["stimulus.prepare", "stimulus.start", "stimulus.stop"]
+events = [[event for event in event_list if event.type in types] for event_list in events]
+event_types = np.array([(types.index(event_list[0].type) * 3 + classes.index(event_list[0].value) if len(event_list) > 0 else -1) for event_list in events])
+event_types[np.logical_and(event_types >= 3, event_types < 6)] = 2
+stop_events = np.where(event_types >= 6)[0]
+event_types[stop_events[stop_events < event_types.size - 3] + 3] = -event_types[stop_events]-2
+event_types[stop_events] = 2
+event_types += 1
+event_series = np.cumsum(event_types)[:-window_shift]
+data = data[window_shift:]
 
-print(types)
-
-getType = lambda type, data: [d for t, d in zip(types, data) if t == type]
-splitData = lambda classes, data: {c: np.array(getType(c, data)) for c in classes}
-
-classes = set(types)
-'''
-timeData = {
-    'prep': splitData(classes, applyfilter(LRPband, prepData)),
-    'start': splitData(classes, applyfilter(ERDband, startData)),
-    'stop': splitData(classes, applyfilter(ERSband, stopData))
-}
-
-treeLambda = lambda data, fun: {k1: {k2: fun(data[k1][k2]) for k2 in data[k1].keys()} for k1 in data.keys()}
-treeMeans = lambda data: treeLambda(data, lambda datum: np.mean(datum, axis=0))
-
-colors = {
-    'LH': 'b',
-    'RH': 'g',
-    'F': 'r'
-}
-
-timeMeans = treeMeans(timeData)
-for typeMeans in timeMeans.values():
-    fig, axs = sns.plt.subplots(2, 5, sharey='all', sharex='all')
-    for i, ax in enumerate(axs.flatten()):
-        if i < len(channels):
-            ax.set_title(channels[i])
-            #print(typeMeans)
-            for eventType, eventMeans in typeMeans.items():
-                ax.plot(eventMeans[:,i], label=eventType)
-                #sns.tsplot(data=eventMeans[:,:,i], ci=[68, 95], ax=ax, color=colors[eventType])
-    sns.plt.legend()
-
-specData = treeLambda(timeData, lambda datum: signal.spectrogram(datum, freq, nperseg=64, noverlap=63, axis=1))
-#waveData = treeLambda(timeData, lambda datum: pywt.wavedec(datum, 'db1', axis=1))
-specMeans = treeLambda(specData, lambda datum: (datum[0], datum[1], np.mean(datum[2], axis=0)))
-for eventType, typeMeans in specMeans.items():
-    for eventClass, eventMeans in typeMeans.items():
-        fig, axs = sns.plt.subplots(2, 5, sharey='all', sharex='all')
-        print(eventType + ' for ' + eventClass)
-        for i, ax in enumerate(axs.flatten()):
-            if i < len(channels):
-                ax.set_title(channels[i])
-                x, y = np.meshgrid(*reversed(eventMeans[0:2]))
-                ax.contourf(x, y, np.multiply(eventMeans[2][:,i,:], np.matrix([[f ** 2 for f in eventMeans[0]]] * len(eventMeans[1])).T))
-        ax.set_ylim([0, 45])
-'''
+# Split dah sets
+train_data, train_events = data[:deckCut], event_series[:deckCut]
+test_data, test_events = data[deckCut+30:], event_series[deckCut+30:]
 
 # CLASSIFICATION :D :D :D
-def fit(data, events, C=1, kernel='rbf'):
-    classifier = sk.svm.SVC(C=C, kernel=kernel, probability=True)
-    classifier.fit(np.array([datum.flatten().tolist() for datum in data]), np.array(events))
+def fit(data, events, C=3.5, kernel='rbf'):
+    event_types = list(set(events))
+    events = np.array(events)
+    lolweights = {i: (events == i).mean() for i in event_types}
+    classifier = sk.svm.SVC(C=C, kernel=kernel, probability=False)
+    classifier.fit(np.array([datum.flatten().tolist() for datum in data]), events)
     return classifier
 
-TypeFilter = lambda data: [datum[:,:,0:31:5] for datum in data]
-LRPfilter = lambda data: [datum[0,:,0:6] for datum in data]
-ERDfilter = lambda data: [datum[1:,:,0:31:5] for datum in data]
-ERSfilter = lambda data: [datum[2,:,0:31:5] for datum in data]
+classifier = fit(train_data, train_events)
 
-#ev_types = list(set([event.type for event in events])) 
-#classes = list(classes)
-#print(ev_types, classes)
-classes = ["RH", "LH", "F"]
-ev_types = ["stimulus.prepare", "stimulus.start", "stimulus.stop"]
+all, correct = 0, 0
+for datum, event in zip(train_data, train_events):
+    pred = classifier.predict(datum.reshape(1, -1))[0]
+    correct += int(pred == event) if event > 0 else 0
+    all += 1 if event > 0 else 0
+
+print(float(correct) / all)
+
+all, correct = 0, 0
+hits = np.zeros((10,))
+confusion = np.zeros((10, 10))
+for datum, event in zip(test_data, test_events):
+    pred = classifier.predict(datum.reshape(1, -1))[0]
+    confusion[pred, event] += 1
+    hits[pred] += 1
+    correct += int(pred == event) if event > 0 else 0
+    all += 1 if event > 0 else 0
+
+print(np.histogram(event_series, bins=10)[0])
+print(hits)
+print(float(correct) / all)
+print(confusion)
+
+'''
 all = 0
 correct = np.zeros((9,))
 total = np.zeros((9,))
@@ -164,13 +128,13 @@ for n in range(1):
 
         prediction_matrix = lambda datum: (np.array([(c.predict_proba(f([datum])[0].reshape(1, -1))).flatten().tolist() for t, f, c in classifiers]) \
                                 * classifier.predict_proba(TypeFilter([datum])[0].reshape(1, -1)).T).flatten()
-        '''
+        
         l_events = np.array([classes.index(type) for j, type in enumerate(types) if j != i])
         all_events = l_events.tolist() + (l_events + 3).tolist() + (l_events + 6).tolist()
         classifier = fit(startPart + stopPart + prepPart, all_events)
 
         prediction_matrix = lambda datum: classifier.predict_proba(datum.reshape(1, -1))
-        '''
+        
         print('bootstrap', i)
         cheat = 0
         if (i+cheat < len(types)):
@@ -261,5 +225,4 @@ print("End of recording")
 #      8: Test Cybathlon performance
 #      9: Tweak training procedure(s) accordingly
 #---------Done by Tuesday afternoon
-
-sns.plt.show()
+'''

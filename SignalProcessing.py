@@ -5,7 +5,7 @@ import pickle
 
 ftc, hdr = bufhelp.connect()
 
-trlen_ms = 3000
+trlen_ms = 1500
 run = True
 
 print("Waiting for startPhase.cmd event.")

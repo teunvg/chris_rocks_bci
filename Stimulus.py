@@ -4,16 +4,16 @@ from random import randint, uniform, shuffle
 import numpy as np
 
 # experiment settings
-training_type = 'hmm'
-training_blocks = 3
-training_stims = 10
+training_type = 'main'
+training_blocks = 8
+training_stims = 8
 
 prep_length = (.6, 1.2)
-stim_length = (1., 2.)
-interstim_time = (.75, 1.5)
+stim_length = (.75, 2.)
+interstim_time = (1., 2.5)
 hmm_stim_length = (.5, .5)
 hmm_interstim_time = (2, 3)
-break_time = 15
+break_time = 10
 
 # set up the environment
 stim_dist = 5
