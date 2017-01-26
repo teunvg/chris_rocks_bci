@@ -5,6 +5,7 @@ from buffer_bci import preproc, linear
 import pickle
 import pywt as pywt
 import sklearn as sk
+from hmmlearn import hmm
 
 # Load recorded data
 events = data = []
@@ -20,7 +21,12 @@ window_shift = 3
 
 ix = np.where([len(event) > 0 for event in events])[0]
 gap_ix = ix[np.diff(ix) > 30]
-deckCut = gap_ix[3] + 1
+for i in range(gap_ix.size):
+    gap = gap_ix[i]
+    data[gap+5:gap+35] = []
+    events[gap+5:gap+35] = []
+    gap_ix[i+1:] -= 30
+l1Cut, l2Cut = gap_ix[2] + 1, gap_ix[6] + 1
 
 # Preprocessing hooray!
 data = [datum[-window_size:,:n_channels] for i, datum in enumerate(data)]
@@ -32,12 +38,13 @@ data = preproc.spatialfilter(data, type="car")
 #data, events, badtrials = preproc.badtrialremoval(data, events)
 
 # Take fft
-expfun = (1-(1/np.exp(np.linspace(0, 4.2, window_size)))).reshape((window_size,1))
-data = [np.abs(np.fft.rfft(1 * datum, axis=0)) for datum in data]
-freqs = np.array([float(i)/window_size*freq for i in range(window_size/2+1)])
-deltas = [np.logical_and(freqs > i, freqs < j) for i, j in zip([0.4, 2], [2, 4])]
-mus = [np.logical_and(freqs > i, freqs < j) for i, j in zip([7, 11], [11, 14])]
-betas = [np.logical_and(freqs > i, freqs < j) for i, j in zip([14, 18, 22, 26], [18, 22, 26, 30])]
+subwindow = window_size
+expfun = (1-0.5*(1/np.exp(np.linspace(0, 4.2, window_size)))).reshape((window_size,1))
+data = [np.abs(np.fft.rfft(1 * datum.reshape(subwindow, -1), axis=0)) for datum in data]
+freqs = np.array([float(i)/subwindow*freq for i in range(subwindow/2+1)])
+deltas = [np.logical_and(freqs > i, freqs < j) for i, j in zip([0.4], [4])]
+mus = [np.logical_and(freqs > i, freqs < j) for i, j in zip([7], [14])]
+betas = [np.logical_and(freqs > i, freqs < j) for i, j in zip([14, 19, 26], [19, 26, 30])]
 bands = deltas + mus + betas
 data = [np.array([datum[band, :].mean(axis=0).tolist() for band in bands]) for datum in data]
 
@@ -59,15 +66,21 @@ stop_events = np.where(event_types >= 6)[0]
 event_types[stop_events[stop_events < event_types.size - 3] + 3] = -event_types[stop_events]-2
 event_types[stop_events] = 2
 event_types += 1
-event_series = np.cumsum(event_types)[:-window_shift]
-data = data[window_shift:]
+event_series = np.cumsum(event_types)
+
+#event_series = np.ceil(event_series / 3)
+
+if window_shift > 0:
+    event_series = event_series[:-window_shift]
+    data = data[window_shift:]
 
 # Split dah sets
-train_data, train_events = data[:deckCut], event_series[:deckCut]
-test_data, test_events = data[deckCut+30:], event_series[deckCut+30:]
+train_data, train_events = data[:l1Cut], event_series[:l1Cut]
+hmm_data, hmm_events = data[l1Cut:l2Cut], event_series[l1Cut:l2Cut]
+test_data, test_events = data[l2Cut:], event_series[l2Cut:]
 
 # CLASSIFICATION :D :D :D
-def fit(data, events, C=3.5, kernel='rbf'):
+def fit(data, events, C=10, kernel='linear'):
     event_types = list(set(events))
     events = np.array(events)
     lolweights = {i: (events == i).mean() for i in event_types}
@@ -75,6 +88,9 @@ def fit(data, events, C=3.5, kernel='rbf'):
     classifier.fit(np.array([datum.flatten().tolist() for datum in data]), events)
     return classifier
 
+order = np.argsort(train_events)
+train_data = np.array(train_data)[order]
+train_events = np.array(train_events)[order]
 classifier = fit(train_data, train_events)
 
 all, correct = 0, 0
@@ -86,114 +102,92 @@ for datum, event in zip(train_data, train_events):
 print(float(correct) / all)
 
 all, correct = 0, 0
-hits = np.zeros((10,))
-confusion = np.zeros((10, 10))
-for datum, event in zip(test_data, test_events):
+hits, tots = np.zeros((10,)), np.zeros((10,))
+confusion = np.ones((10, 10)) * .2
+for datum, event in zip(hmm_data, hmm_events):
     pred = classifier.predict(datum.reshape(1, -1))[0]
     confusion[pred, event] += 1
-    hits[pred] += 1
+    hits[pred] += int(pred == event)
+    tots[pred] += 1
     correct += int(pred == event) if event > 0 else 0
     all += 1 if event > 0 else 0
 
 print(np.histogram(event_series, bins=10)[0])
-print(hits)
+print(hits / tots)
 print(float(correct) / all)
-print(confusion)
-
-'''
-all = 0
-correct = np.zeros((9,))
-total = np.zeros((9,))
-classcor = np.zeros((3,))
-classtot = np.zeros((3,))
-typecor = np.zeros((3,))
-typetot = np.zeros((3,))
-confusion = np.zeros((10,9))
-confusion[:,:] = 1.
-
-for n in range(1):
-    for i in range(len([1])):
-        prepPart, startPart, stopPart = prepData[:i] + prepData[(i+1):], startData[:i] + startData[(i+1):], stopData[:i] + stopData[(i+1):]
-        
-        t_events = (0,) * len(prepPart) + (1,) * len(startPart) + (2,) * len(stopPart)
-        classifier = fit(TypeFilter(prepPart + startPart + stopPart), t_events, C=1)
-
-        l_events = [classes.index(type) for j, type in enumerate(types) if j != i]
-        l_events, prepPart, startPart, stopPart = zip(*[(l_events[j], prepPart[j], startPart[j], stopPart[j]) for j in np.argsort(l_events)])
-        classifiers = (
-            ('LRP', LRPfilter, fit(LRPfilter(prepPart), l_events, C=5)),
-            ('ERD', ERDfilter, fit(ERDfilter(startPart), l_events, C=5)),
-            ('ERS', ERSfilter, fit(ERSfilter(stopPart), l_events, C=5))
-        )
-
-        prediction_matrix = lambda datum: (np.array([(c.predict_proba(f([datum])[0].reshape(1, -1))).flatten().tolist() for t, f, c in classifiers]) \
-                                * classifier.predict_proba(TypeFilter([datum])[0].reshape(1, -1)).T).flatten()
-        
-        l_events = np.array([classes.index(type) for j, type in enumerate(types) if j != i])
-        all_events = l_events.tolist() + (l_events + 3).tolist() + (l_events + 6).tolist()
-        classifier = fit(startPart + stopPart + prepPart, all_events)
-
-        prediction_matrix = lambda datum: classifier.predict_proba(datum.reshape(1, -1))
-        
-        print('bootstrap', i)
-        cheat = 0
-        if (i+cheat < len(types)):
-            for ev_type, datum in zip([0, 1, 2], [prepData[i+cheat], startData[i+cheat], stopData[i+cheat]]):
-                #ev_type = ev_types.index(event.type)
-                ev_class = classes.index(types[i+cheat])  #classes.index(event.value)
-                ix = ev_type * 3 + ev_class
-                print(ix, ev_type, ev_class)
-                #pred = prediction_matrix(datum)
-                #predmat = pred.reshape(3,3)
-                pred_type = classifier.predict(TypeFilter([datum])[0].reshape(1, -1)) #predmat.sum(axis=1).argmax()
-                t, f, c = classifiers[pred_type]
-                pred_class = c.predict(f([datum])[0].reshape(1, -1)) #predmat.sum(axis=0).argmax()
-                #preds = pred.argpartition(-3)[-3:]
-                predix = pred_type * 3 + pred_class #pred.argmax()
-                hit = ix == predix #(ev_type, ev_class) == (pred_type, pred_class) #
-                confusion[ix, predix] += 1
-                all += 1
-                total[ix] += 1
-                if hit:
-                    correct[ix] += 1
-                classtot[ev_class] += 1
-                if ev_class == pred_class:
-                    classcor[ev_class] += 1
-                typetot[ev_type] += 1
-                if ev_type == pred_type:
-                    typecor[ev_type] += 1
-                #print(ix, pred.argmax())
-                #print((ev_type, ev_class), (pred_type, pred_class))
-
-rate = np.divide(correct, total)
-print(rate, np.mean(rate))
-
-classrate = np.divide(classcor, classtot)
-print(classrate, np.mean(classrate))
-
-typerate = np.divide(typecor, typetot)
-print(typerate, np.mean(typerate))
 
 mean_confusion = confusion.sum(axis=1)
 norm_confusion = np.divide(confusion, mean_confusion.reshape(-1,1))
 print(norm_confusion)
 
-# Rerun unbootstrapped
-t_events = (0,) * len(prepData) + (1,) * len(startData) + (2,) * len(stopData)
-classifier = fit(TypeFilter(prepData + startData + stopData), t_events)
-
-l_events = [classes.index(type) for j, type in enumerate(types)]
-l_events, prepPart, startPart, stopPart = zip(*[(l_events[j], prepData[j], startData[j], stopData[j]) for j in np.argsort(l_events)])
-classifiers = {
-    'ERD': fit(ERDfilter(prepPart), l_events, C=15),
-    'ERS': fit(ERSfilter(startPart), l_events, C=15),
-    'LRP': fit(LRPfilter(stopPart), l_events, C=15)
-}
-
 # Save data
 with open("l1_classifiers.dat", "w") as file:
-    pickle.dump({"observation": norm_confusion, "type_classifier": classifier, "signal_classifiers": classifiers}, file)
-print("End of recording")
+    pickle.dump({
+        "observation": norm_confusion, 
+        "classifier": classifier,
+        "feature": {
+            "means": feature_means,
+            "stds": feature_stds
+        }
+        }, file)
+print("End of l1 training")
+
+# The second layer will be majestic and reach 30%
+observations = [classifier.predict(datum.reshape(1, -1))[0] for datum in test_data]
+
+emissionMatrix = np.matrix(norm_confusion)
+transitionMatrix = np.matrix([
+    [.7, .1, .1, .1, 0, 0, 0, 0, 0, 0],
+    [0, .56, 0, 0, .44, 0, 0, 0, 0, 0],
+    [0, 0, .56, 0, 0, .44, 0, 0, 0, 0],
+    [0, 0, 0, .56, 0, 0, .44, 0, 0, 0],
+    [0, 0, 0, 0, .6, 0, 0, .4, 0, 0],
+    [0, 0, 0, 0, 0, .6, 0, 0, .4, 0],
+    [0, 0, 0, 0, 0, 0, .6, 0, 0, .4],
+    [.44, 0, 0, 0, 0, 0, 0, .56, 0, 0],
+    [.44, 0, 0, 0, 0, 0, 0, 0, .56, 0],
+    [.44, 0, 0, 0, 0, 0, 0, 0, 0, .56]
+    ])
+
+HMM = hmm.MultinomialHMM(n_components=10)
+HMM.transmat_ = transitionMatrix
+HMM.startprob_ = np.array([.304] + [.077] * 3 + [.086] * 3 + [.069] * 3)
+HMM.emissionprob_ = emissionMatrix
+
+hmm_window = 30
+samples = len(observations) - hmm_window
+Xix = np.array([observations[i:i+hmm_window] for i in range(samples)]).flatten()
+X = np.zeros((len(Xix), 10))
+for i, observation in enumerate(Xix):
+    X[i,observation] = 1
+Xlengths = np.array([hmm_window] * samples)
+
+#HMM.fit(np.array(hmm_events).reshape(-1,1))
+#print(test_events[20:40], observations[20:40], HMM.predict(np.array(observations)[20:40]))
+
+hmm_step = 8
+
+part_pred = [HMM.predict(np.array(observations)[i:i+hmm_window])[-hmm_step:].max() for i in range(0, len(test_events)-hmm_window, hmm_step)]
+pred = np.array([p - 6 if p > 6 else 0 for p in part_pred])
+
+part_true = [test_events[i+hmm_window-hmm_step:i+hmm_window].max() for i in range(0, len(test_events)-hmm_window, hmm_step)]
+true = np.array([p - 6 if p > 6 else 0 for p in part_true])
+
+print(pred, true, float(np.logical_and(pred == true, true > 0).sum()) / (true > 0).sum())
+
+# Save data
+with open("l2_classifiers.dat", "w") as file:
+    pickle.dump({
+        "hmm": HMM, 
+        "classifier": classifier,
+        "feature": {
+            "means": feature_means,
+            "stds": feature_stds
+        }
+        }, file)
+print("End of l2 training")
+
+print("done")
 
 # 1/3 * 1/8 * 1/8 = ~0.5% chance of random perfect sequence
 # Mathematically (back of the envelope) every 5 minutes for time window of 1.5s
@@ -225,4 +219,3 @@ print("End of recording")
 #      8: Test Cybathlon performance
 #      9: Tweak training procedure(s) accordingly
 #---------Done by Tuesday afternoon
-'''
