@@ -8,7 +8,7 @@ trlen_ms = 1100
 sample_ms = 250
 
 # Fetch nummer of channels and sampling rate
-n_channels = hdr.nChannels
+n_channels = 10 #hdr.nChannels
 sampling_rate = hdr.fSample
 sample_window = trlen_ms * sampling_rate / 1000.
 sample_rate = sample_ms * sampling_rate / 1000.

@@ -26,7 +26,7 @@ for i in range(gap_ix.size):
     data[gap+5:gap+35] = []
     events[gap+5:gap+35] = []
     gap_ix[i+1:] -= 30
-l1Cut, l2Cut = gap_ix[2] + 1, gap_ix[6] + 1
+l1Cut, l2Cut = gap_ix[1] + 1, gap_ix[1] + 1
 
 # Preprocessing hooray!
 data = [datum[-window_size:,:n_channels] for i, datum in enumerate(data)]
@@ -80,11 +80,11 @@ hmm_data, hmm_events = data[l1Cut:l2Cut], event_series[l1Cut:l2Cut]
 test_data, test_events = data[l2Cut:], event_series[l2Cut:]
 
 # CLASSIFICATION :D :D :D
-def fit(data, events, C=10, kernel='linear'):
+def fit(data, events, C=4, kernel='rbf'):
     event_types = list(set(events))
     events = np.array(events)
     lolweights = {i: (events == i).mean() for i in event_types}
-    classifier = sk.svm.SVC(C=C, kernel=kernel, probability=False)
+    classifier = sk.svm.SVC(C=C, kernel=kernel, probability=True)
     classifier.fit(np.array([datum.flatten().tolist() for datum in data]), events)
     return classifier
 
@@ -95,7 +95,7 @@ classifier = fit(train_data, train_events)
 
 all, correct = 0, 0
 for datum, event in zip(train_data, train_events):
-    pred = classifier.predict(datum.reshape(1, -1))[0]
+    pred = classifier.predict_proba(datum.reshape(1, -1)).argmax()
     correct += int(pred == event) if event > 0 else 0
     all += 1 if event > 0 else 0
 
@@ -104,8 +104,8 @@ print(float(correct) / all)
 all, correct = 0, 0
 hits, tots = np.zeros((10,)), np.zeros((10,))
 confusion = np.ones((10, 10)) * .2
-for datum, event in zip(hmm_data, hmm_events):
-    pred = classifier.predict(datum.reshape(1, -1))[0]
+for datum, event in zip(test_data, test_events):
+    pred = classifier.predict_proba(datum.reshape(1, -1)).argmax()
     confusion[pred, event] += 1
     hits[pred] += int(pred == event)
     tots[pred] += 1
@@ -133,7 +133,7 @@ with open("l1_classifiers.dat", "w") as file:
 print("End of l1 training")
 
 # The second layer will be majestic and reach 30%
-observations = [classifier.predict(datum.reshape(1, -1))[0] for datum in test_data]
+observations = [classifier.predict_proba(datum.reshape(1, -1)).argmax() for datum in test_data]
 
 emissionMatrix = np.matrix(norm_confusion)
 transitionMatrix = np.matrix([
@@ -165,7 +165,7 @@ Xlengths = np.array([hmm_window] * samples)
 #HMM.fit(np.array(hmm_events).reshape(-1,1))
 #print(test_events[20:40], observations[20:40], HMM.predict(np.array(observations)[20:40]))
 
-hmm_step = 8
+hmm_step = 12
 
 part_pred = [HMM.predict(np.array(observations)[i:i+hmm_window])[-hmm_step:].max() for i in range(0, len(test_events)-hmm_window, hmm_step)]
 pred = np.array([p - 6 if p > 6 else 0 for p in part_pred])
@@ -174,6 +174,7 @@ part_true = [test_events[i+hmm_window-hmm_step:i+hmm_window].max() for i in rang
 true = np.array([p - 6 if p > 6 else 0 for p in part_true])
 
 print(pred, true, float(np.logical_and(pred == true, true > 0).sum()) / (true > 0).sum())
+print(float(np.logical_and(pred == true, true == 0).sum()) / (true == 0).sum())
 
 # Save data
 with open("l2_classifiers.dat", "w") as file:

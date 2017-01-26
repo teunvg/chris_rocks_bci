@@ -12,7 +12,7 @@ sample_ms = 250
 # Load recorded data
 with open('l2_classifiers' + '.dat', 'r') as file:
     raw = pickle.load(file)
-    classifier, hmm, feature = raw['classifier'], raw['hmm'], raw['feature']
+    classifier, HMM, feature = raw['classifier'], raw['hmm'], raw['feature']
 
 # Connect to Cybathlon
 try:
@@ -27,8 +27,8 @@ connection = (s, (host, port))
 
 def sendCommand(connection, player, cmd):
     cmds = ['SPEED', 'JUMP', 'ROLL']
-    msg = player * 10 + cmds.index(cmd)
-    connection[0].sendto(ord(cmd), connection[1])
+    msg = player * 10 + cmds.index(cmd) + 1
+    connection[0].sendto(chr(msg), connection[1])
 
 # Model parameters
 commands = ['IDLE', 'SPEED', 'ROLL', 'JUMP']
@@ -39,7 +39,7 @@ hmm_window = 30
 hmm_step = 8
 
 # Fetch nummer of channels and sampling rate
-n_channels = hdr.nChannels
+n_channels = 10 #hdr.nChannels
 sampling_rate = hdr.fSample
 sample_window = trlen_ms * sampling_rate / 1000.
 sample_rate = sample_ms * sampling_rate / 1000.
@@ -54,7 +54,7 @@ while True:
     timespan = (cur_sample - sample_window, cur_sample - 1)
     eventspan = (prev_events, n_events - 1)
     datum = ftc.getData(timespan)
-    event = ftc.getEvents(eventspan)
+    events = ftc.getEvents(eventspan)
 
     # Preprocess data
     datum = datum[-window_size:,:n_channels]
@@ -87,6 +87,7 @@ while True:
         pred = part_pred - 6 if part_pred > 6 else 0
 
         action = commands[pred]
+        print(action)
         if action != 'IDLE':
             sendCommand(connection, player, action)
 
@@ -94,10 +95,5 @@ while True:
     ts += 1
     prev_events = n_events
     cur_sample, n_events = ftc.wait(cur_sample + sample_rate, -1, sample_ms)
-    if any([ev.type == 'stimulus.training' and ev.value == 'end' for ev in events[-1]]):
-        break
-
-# Save data
-with open("live_subject_data.dat", "w") as file:
-    pickle.dump({"hdr": hdr, "events": events, "data": data}, file)
-print("End of recording")
+    #if any([ev.type == 'stimulus.training' and ev.value == 'end' for ev in events[-1]]):
+    #    break

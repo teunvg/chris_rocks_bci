@@ -5,8 +5,8 @@ import numpy as np
 
 # experiment settings
 training_type = 'main'
-training_blocks = 8
-training_stims = 8
+training_blocks = 4
+training_stims = 10
 
 prep_length = (.6, 1.2)
 stim_length = (.75, 2.)
